@@ -3,9 +3,10 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { kv } from '@vercel/kv'
-
 import { auth } from '@/auth'
 import { type Chat } from '@/lib/types'
+import { hash } from 'bcryptjs'
+import { nanoid } from 'nanoid'
 
 export async function getChats(userId?: string | null) {
   if (!userId) {
@@ -51,7 +52,8 @@ export async function removeChat({ id, path }: { id: string; path: string }) {
 
   const uid = await kv.hget<string>(`chat:${id}`, 'userId')
 
-  if (uid !== session?.user?.id) {
+
+  if (uid != session?.user?.id) {
     return {
       error: 'Unauthorized'
     }
@@ -125,4 +127,41 @@ export async function shareChat(id: string) {
   await kv.hmset(`chat:${chat.id}`, payload)
 
   return payload
+}
+// Assuming kv is a database and redirect is a function to redirect the user
+
+export const signUp = async (formData: FormData) => {
+  const email = formData.get('email') as string
+  const password = formData.get('password') as string
+console.log(email,password);
+
+  // Check if the user already exists with the provided email
+  const user = await kv.hget(`user:${email}`, `${email}`)
+  console.log("yse",user);
+  
+  if (user) {
+    console.log("if",user);
+    
+    return redirect('/sign-in?message=User already exists with the email')
+  }
+
+  const hashedPassword = await hash(password, 10)
+  const id = nanoid()
+  const newUser = {
+    id: id,
+    email: email,
+    password: hashedPassword
+  }
+
+  const data = await kv.set(`user`, newUser)
+ 
+  
+  if (data) {
+    console.log(data);
+    return redirect('/sign-in?message=Sign up successful! Please login.')
+  } else {
+    console.log("errpr")
+  }
+
+  return redirect('/sign-up?message=Something went wrong')
 }

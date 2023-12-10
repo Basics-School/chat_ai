@@ -1,6 +1,8 @@
 import NextAuth, { type DefaultSession } from 'next-auth'
 import GitHub from 'next-auth/providers/github'
-
+import CredentialsProvider from 'next-auth/providers/credentials'
+import { compare } from 'bcryptjs'
+import { kv } from '@vercel/kv'
 declare module 'next-auth' {
   interface Session {
     user: {
@@ -9,12 +11,66 @@ declare module 'next-auth' {
     } & DefaultSession['user']
   }
 }
+interface User {
+  email: string
+  password: string
+  // Other user data if applicable
+}
 
 export const {
   handlers: { GET, POST },
-  auth
+  auth,
+  signIn,
+  signOut
 } = NextAuth({
-  providers: [GitHub],
+  providers: [
+    GitHub({
+      clientId: process.env.AUTH_GITHUB_ID,
+      clientSecret: process.env.AUTH_GITHUB_SECRET
+    }),
+    CredentialsProvider({
+      name: 'Credentials',
+      credentials: {
+        email: {
+          label: 'Email',
+          type: 'email',
+          placeholder: 'rdj@redlnk.com'
+        },
+        password: { label: 'Password', type: 'password' }
+      },
+      // @ts-ignore
+      async authorize(credentials: {
+        email: any
+        password: any
+      }): Promise<{} | null> {
+        console.log('logging in..')
+
+        try {
+          const user = await kv.get<User>(`user:${credentials?.email}`)
+          if (!user) {
+            return null
+          }
+
+          if (!user?.password) {
+            return null
+          }
+
+          const passwordCorrect = await compare(
+            credentials?.password,
+            user.password
+          )
+
+          if (passwordCorrect) {
+            return user
+          }
+
+          return null
+        } catch (error) {
+          return null
+        }
+      }
+    })
+  ],
   callbacks: {
     jwt({ token, profile }) {
       if (profile) {
@@ -29,11 +85,11 @@ export const {
       }
       return session
     },
-    authorized({ auth }) {
-      return !!auth?.user // this ensures there is a logged in user for -every- request
+    authorized({ request, auth }) {
+      return !!auth?.user
     }
   },
   pages: {
-    signIn: '/sign-in' // overrides the next-auth default signin page https://authjs.dev/guides/basics/pages
+    signIn: '/sign-in'|| "/sign-up",
   }
 })
